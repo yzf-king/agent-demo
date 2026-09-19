@@ -1,0 +1,29 @@
+server:
+  port: 8083
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: agent-demo
+  # 同 rag-demo：手动建 DeepSeek 的 chat bean，关掉 OpenAI 的六个自动配置，
+  # 否则它们会强读 spring.ai.openai.api-key 而在启动时报错
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+
+# 手写 ReAct 的循环上限：没有上限的话模型可能一直"再来一步"停不下来（也是成本兜底）
+agent:
+  max-steps: 6
+
+# Key 只走环境变量（setx DEEPSEEK_API_KEY "sk-xxx"），不进代码/仓库
+llm:
+  chat:
+    base-url: https://api.deepseek.com
+    model: deepseek-chat
+    api-key: ${DEEPSEEK_API_KEY:}

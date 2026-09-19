@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Agent 对比台：手写 ReAct vs 框架 Tool Calling</title>
+<style>
+  :root { --line:#e3e6ea; --muted:#7a8290; --bg:#f7f8fa; --accent:#2f6feb; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; margin:0; padding:24px; background:var(--bg); color:#1f2328; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .tools span { display:inline-block; background:#eef3ff; color:#2f4b8f; border-radius:20px; padding:3px 10px; font-size:12px; margin:0 6px 6px 0; }
+  input[type=text] { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  button { padding:8px 14px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; font-size:13px; margin:8px 8px 0 0; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px) { .cols { grid-template-columns:1fr; } }
+  .col h2 { font-size:15px; margin:0 0 4px; }
+  .meta { color:var(--muted); font-size:12px; margin-bottom:10px; }
+  .answer { background:#f2fbf4; border:1px solid #cfe9d6; border-radius:8px; padding:10px 12px; font-size:14px; white-space:pre-wrap; }
+  .answer.warn { background:#fff8e6; border-color:#f0d9a0; }
+  .step { border-left:3px solid var(--line); padding:8px 0 8px 12px; margin:10px 0; }
+  .step b { font-size:13px; }
+  .kv { font-size:13px; margin:4px 0; }
+  .kv i { color:var(--muted); font-style:normal; }
+  .obs { background:#f6f7f9; border-radius:6px; padding:6px 8px; font-size:12px; white-space:pre-wrap; max-height:180px; overflow:auto; }
+  .err { color:#c0392b; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>Agent 对比台</h1>
+<div class="sub">同一批工具、同一个模型：左边是手写 ReAct 循环（文本协议 + 正则解析），右边是 Spring AI 原生 tool calling（结构化 tool_calls）</div>
+
+<div class="card">
+  <div class="tools" id="tools"></div>
+</div>
+
+<div class="card">
+  <input type="text" id="q" value="员工手册说每周最多几天远程办公？按一个月 4.3 周算，一个月最多几天？">
+  <div>
+    <button class="primary" onclick="run('both')">两个都跑（推荐）</button>
+    <button onclick="run('react')">只跑手写 ReAct</button>
+    <button onclick="run('native')">只跑框架 Tool Calling</button>
+  </div>
+</div>
+
+<div class="cols">
+  <div class="card"><div class="col" id="col-react"><h2>① 手写 ReAct</h2><div class="meta">等待运行…</div></div></div>
+  <div class="card"><div class="col" id="col-native"><h2>② 框架 Tool Calling</h2><div class="meta">等待运行…</div></div></div>
+</div>
+
+<script>
+fetch('/api/agent/tools').then(r => r.json()).then(list => {
+  document.getElementById('tools').innerHTML =
+    list.map(t => `<span title="${esc(t.description)}">${esc(t.name)}</span>`).join('');
+});
+
+async function run(which) {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  const targets = which === 'both' ? ['react', 'native'] : [which];
+  const pending = targets.map(t => load(t, q));
+  await Promise.all(pending);
+  document.querySelectorAll('button').forEach(b => b.disabled = false);
+}
+
+async function load(kind, q) {
+  const box = document.getElementById('col-' + kind);
+  box.innerHTML = `<h2>${kind === 'react' ? '① 手写 ReAct' : '② 框架 Tool Calling'}</h2><div class="meta">运行中…</div>`;
+  try {
+    const r = await fetch(`/api/agent/${kind}?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    render(box, kind, data);
+  } catch (e) {
+    box.innerHTML += `<div class="err">请求失败：${esc(e.message)}</div>`;
+  }
+}
+
+function render(box, kind, data) {
+  const title = kind === 'react' ? '① 手写 ReAct' : '② 框架 Tool Calling';
+  const warn = data.finished ? '' : ' warn';
+  let html = `<h2>${title}</h2>
+    <div class="meta">${data.steps.length} 步 · ${data.totalMs} ms${data.finished ? '' : ' · ⚠️ 未正常收敛'}</div>
+    <div class="answer${warn}">${esc(data.answer)}</div>`;
+  for (const s of data.steps) {
+    html += `<div class="step"><b>第 ${s.step} 步</b>`;
+    if (s.thought) html += `<div class="kv"><i>Thought：</i>${esc(s.thought)}</div>`;
+    if (s.action) {
+      const json = (s.input || '').trim().startsWith('{') ? '（框架传的是结构化 JSON 参数）' : '';
+      html += `<div class="kv"><i>Action：</i>${esc(s.action)}<i>　输入：</i>${esc(s.input || '—')} <i>${json}</i></div>`;
+      html += `<div class="obs">${esc(s.observation)}</div>`;
+    } else {
+      html += `<div class="kv"><i>（本步未调工具，直接给出最终回答）</i></div>`;
+    }
+    const scope = s.costScope === 'tool-only'
+      ? '仅工具执行——模型调用在框架内部，这里测不到'
+      : '含模型调用与工具执行';
+    html += `<div class="kv"><i>耗时：</i>${s.costMs} ms <i>（${scope}）</i></div></div>`;
+  }
+  box.innerHTML = html;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+</script>
+</body>
+</html>
