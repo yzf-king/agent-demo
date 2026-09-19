@@ -48,6 +48,9 @@ public class NativeToolAgent {
                 .toArray(ToolCallback[]::new);
 
         String answer = chatClient.prompt()
+                // 工具清单不用写进 prompt：框架会把它作为 API 的 tools 参数发过去。
+                // 但"行为约束"必须显式带上——框架只负责把工具给模型，管不了它编不编（见 AgentPrompts 注释）
+                .system(AgentPrompts.behaviorRules())
                 .user(question)
                 .toolCallbacks(callbacks)
                 .call()

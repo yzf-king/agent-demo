@@ -121,12 +121,13 @@ public class ReActAgent {
                 Thought: 我已经有足够信息了
                 Final Answer: 给用户的最终回答（直接说结论，不要说"根据资料"之类的套话）
 
-                规则：
+                协议规则（这套文本协议特有，框架版用不到）：
                 1. 一次只能调用一个工具，调用后就停下等 Observation，**绝对不要自己编造 Observation**
                 2. 观察由系统提供，你看到的 Observation 就是工具的返回结果
                 3. 信息已经足够时必须用 Final Answer 结束，不要无意义地反复调用工具
                 4. 如果工具返回"工具不存在"，说明你写错了名字，请从清单里挑一个正确的
-                """.formatted(registry.describe());
+
+                %s""".formatted(registry.describe(), AgentPrompts.behaviorRules());
     }
 
     private String userPrompt(String question, StringBuilder scratchpad) {
