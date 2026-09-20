@@ -20,6 +20,16 @@ spring:
 # 手写 ReAct 的循环上限：没有上限的话模型可能一直"再来一步"停不下来（也是成本兜底）
 agent:
   max-steps: 6
+  # 会话记忆。两个上限都要有，缺一个都会在长时间运行后出问题：
+  #   max-turns    单会话保留几轮——不设就是每轮都付一次 token 钱，且长上下文里模型会"忘"
+  #   max-sessions 最多留几个会话——不设就是内存泄漏（每个新 sessionId 都塞一条，只增不减）
+  #   max-facts / max-users 同理，管的是长期画像
+  # 注意：全在堆内存，重启即清空、多实例不共享。上生产要换 Redis/DB
+  memory:
+    max-turns: 6
+    max-sessions: 200
+    max-facts: 20
+    max-users: 200
   knowledge:
     # 知识检索工具指向 rag-demo（作品 1）。两个服务分开跑：
     #   rag-demo   :8081  知识服务（切分/向量化/检索）

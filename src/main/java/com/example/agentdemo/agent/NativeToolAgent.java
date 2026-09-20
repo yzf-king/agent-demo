@@ -3,14 +3,21 @@ package com.example.agentdemo.agent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.stereotype.Service;
+
+import com.example.agentdemo.memory.ChatTurn;
 
 /**
  * 框架版：同一批工具交给 Spring AI 的原生 tool calling。
@@ -39,6 +46,10 @@ public class NativeToolAgent {
     }
 
     public AgentResult run(String question) {
+        return run(question, RunContext.empty());
+    }
+
+    public AgentResult run(String question, RunContext ctx) {
         long started = System.currentTimeMillis();
         List<AgentStep> steps = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger counter = new AtomicInteger();
@@ -50,9 +61,13 @@ public class NativeToolAgent {
         String answer = chatClient.prompt()
                 // 工具清单不用写进 prompt：框架会把它作为 API 的 tools 参数发过去。
                 // 但"行为约束"必须显式带上——框架只负责把工具给模型，管不了它编不编（见 AgentPrompts 注释）
-                .system(AgentPrompts.behaviorRules())
-                .user(question)
+                .system(profileOrRules(ctx))
+                // 历史走真正的消息列表，不是拼进一段文本：
+                // 框架这边能保留 user/assistant 的角色边界，模型更容易分清哪句是谁说的
+                .messages(historyMessages(ctx, question))
                 .toolCallbacks(callbacks)
+                // userId 从这进工具（模型看不到、也编不出来），对应 ToolContext 机制
+                .toolContext(ctx.toolContext())
                 .call()
                 .content();
 
@@ -60,10 +75,30 @@ public class NativeToolAgent {
                 System.currentTimeMillis() - started);
     }
 
+    private String profileOrRules(RunContext ctx) {
+        String profile = (ctx.profile() == null || ctx.profile().isBlank()) ? "" : ctx.profile() + "\n";
+        return profile + AgentPrompts.behaviorRules();
+    }
+
+    private List<Message> historyMessages(RunContext ctx, String question) {
+        List<Message> messages = new ArrayList<>();
+        for (ChatTurn turn : ctx.history()) {
+            messages.add("assistant".equals(turn.role())
+                    ? new AssistantMessage(turn.content())
+                    : new UserMessage(turn.content()));
+        }
+        messages.add(new UserMessage(question));
+        return messages;
+    }
+
     /** 用 FunctionToolCallback 把 Tool 包成框架要求的回调，外面再套一层"记轨迹"的装饰 */
     private ToolCallback recordingCallback(Tool tool, List<AgentStep> steps, AtomicInteger counter) {
         // 参数必须包成对象（见 ToolInput 的注释：直接给 String.class 会被 DeepSeek 判 400）
-        Function<ToolInput, String> fn = in -> tool.run(in == null || in.input() == null ? "" : in.input());
+        // 用接收 ToolContext 的 BiFunction 重载：需要上下文的工具（记用户画像）靠它拿到 userId
+        BiFunction<ToolInput, ToolContext, String> fn = (in, toolCtx) -> {
+            String input = in == null || in.input() == null ? "" : in.input();
+            return tool.run(input, toolCtx == null ? Map.of() : toolCtx.getContext());
+        };
         FunctionToolCallback<ToolInput, String> inner = FunctionToolCallback
                 .builder(tool.name(), fn)
                 .description(tool.description() + "（参数放进 input 字段）")

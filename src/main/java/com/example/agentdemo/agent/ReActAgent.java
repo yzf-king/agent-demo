@@ -11,6 +11,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.example.agentdemo.memory.ChatTurn;
+
 /**
  * 手写 ReAct 循环（不依赖任何 Agent 框架）。
  *
@@ -54,6 +56,10 @@ public class ReActAgent {
     }
 
     public AgentResult run(String question) {
+        return run(question, RunContext.empty());
+    }
+
+    public AgentResult run(String question, RunContext ctx) {
         long started = System.currentTimeMillis();
         List<AgentStep> steps = new ArrayList<>();
         StringBuilder scratchpad = new StringBuilder();   // 已经发生过的 Thought/Action/Observation
@@ -61,8 +67,8 @@ public class ReActAgent {
         for (int step = 1; step <= maxSteps; step++) {
             long stepStart = System.currentTimeMillis();
             String raw = chatClient.prompt()
-                    .system(systemPrompt())
-                    .user(userPrompt(question, scratchpad))
+                    .system(systemPrompt(ctx))
+                    .user(userPrompt(question, scratchpad, ctx))
                     .call()
                     .content();
             String output = cutAtSelfObservation(raw == null ? "" : raw);
@@ -91,7 +97,7 @@ public class ReActAgent {
 
             String action = actionMatcher.group(1).trim();
             String input = firstGroup(ACTION_INPUT, output).replace("\n", " ").trim();
-            String observation = registry.execute(action, input);
+            String observation = registry.execute(action, input, ctx.toolContext());
 
             steps.add(new AgentStep(step, thought, action, input, observation, cost, "model+tool"));
             // 回填：把模型这轮的原话 + 工具的真实结果接在轨迹后面，下一轮一起发回去
@@ -106,8 +112,12 @@ public class ReActAgent {
                 steps, "react", false, System.currentTimeMillis() - started);
     }
 
-    private String systemPrompt() {
-        return """
+    private String systemPrompt(RunContext ctx) {
+        // 长期画像放 system：它对本轮对话是"稳定背景"，不随问题变化，
+        // 也避免被历史轮次截断时一起丢掉（这是长期记忆和短期记忆的分工）
+        String profile = (ctx.profile() == null || ctx.profile().isBlank())
+                ? "" : ctx.profile() + "\n";
+        return profile + """
                 你是一个会使用工具的助手。你通过"思考 → 行动 → 观察"的循环来回答问题。
 
                 可用工具：
@@ -130,12 +140,30 @@ public class ReActAgent {
                 %s""".formatted(registry.describe(), AgentPrompts.behaviorRules());
     }
 
-    private String userPrompt(String question, StringBuilder scratchpad) {
-        if (scratchpad.length() == 0) {
-            return "问题：" + question + "\n\n请输出下一步（Thought + Action + Action Input）。";
+    /**
+     * 拼用户消息。历史被"压平"成一段带角色标签的文本——这是文本协议的代价，
+     * 不是偷懒：ReAct 的整个交互模型就是"我发一段文本、模型回一段文本"，
+     * 中间塞不进真正的多角色消息。角色标签（用户：/助手：）能救回来一部分，
+     * 但和框架版真正的 message 列表仍然不等价（见 NativeToolAgent）。
+     */
+    private String userPrompt(String question, StringBuilder scratchpad, RunContext ctx) {
+        StringBuilder sb = new StringBuilder();
+        if (!ctx.history().isEmpty()) {
+            sb.append("本次会话之前的对话（用户可能用「它/那个/那我呢」指代上文，请先看懂再答）：\n");
+            for (ChatTurn turn : ctx.history()) {
+                sb.append("assistant".equals(turn.role()) ? "助手：" : "用户：")
+                        .append(turn.content()).append('\n');
+            }
+            sb.append("\n---\n\n");
         }
-        return "问题：" + question + "\n\n已经发生的步骤：\n" + scratchpad
-                + "请继续输出下一步。如果信息已经足够，用 Final Answer 给出最终回答。";
+        sb.append("问题：").append(question).append("\n\n");
+        if (scratchpad.length() == 0) {
+            sb.append("请输出下一步（Thought + Action + Action Input）。");
+        } else {
+            sb.append("已经发生的步骤：\n").append(scratchpad)
+                    .append("请继续输出下一步。如果信息已经足够，用 Final Answer 给出最终回答。");
+        }
+        return sb.toString();
     }
 
     /** 截断模型自己编造的 Observation——只保留它编之前的部分 */

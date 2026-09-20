@@ -2,53 +2,129 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>Agent 对比台：手写 ReAct vs 框架 Tool Calling</title>
+<title>企业助理 Agent：多轮对话 + 记忆 + 工具</title>
 <style>
-  :root { --line:#e3e6ea; --muted:#7a8290; --bg:#f7f8fa; --accent:#2f6feb; }
+  :root { --line:#e3e6ea; --muted:#7a8290; --bg:#f7f8fa; --accent:#2f6feb; --mem:#7a4bd0; }
   * { box-sizing:border-box; }
-  body { font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; margin:0; padding:24px; background:var(--bg); color:#1f2328; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  body { font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; margin:0; padding:20px; background:var(--bg); color:#1f2328; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
   .tools span { display:inline-block; background:#eef3ff; color:#2f4b8f; border-radius:20px; padding:3px 10px; font-size:12px; margin:0 6px 6px 0; }
-  input[type=text] { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
-  button { padding:8px 14px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; font-size:13px; margin:8px 8px 0 0; }
+  input[type=text] { padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  button { padding:8px 14px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; font-size:13px; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
   button:disabled { opacity:.5; cursor:not-allowed; }
-  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  @media (max-width:900px) { .cols { grid-template-columns:1fr; } }
-  .col h2 { font-size:15px; margin:0 0 4px; }
-  .meta { color:var(--muted); font-size:12px; margin-bottom:10px; }
-  .answer { background:#f2fbf4; border:1px solid #cfe9d6; border-radius:8px; padding:10px 12px; font-size:14px; white-space:pre-wrap; }
-  .answer.warn { background:#fff8e6; border-color:#f0d9a0; }
-  .step { border-left:3px solid var(--line); padding:8px 0 8px 12px; margin:10px 0; }
-  .step b { font-size:13px; }
-  .kv { font-size:13px; margin:4px 0; }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tabs button.on { border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .layout { display:grid; grid-template-columns:1fr 320px; gap:14px; align-items:start; }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; } }
+  .who { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--muted); }
+  .who input { width:130px; }
+  .chat { min-height:260px; max-height:52vh; overflow:auto; padding-right:4px; }
+  .turn { margin-bottom:12px; display:flex; }
+  .turn.me { justify-content:flex-end; }
+  .bubble { max-width:82%; padding:9px 12px; border-radius:10px; font-size:14px; white-space:pre-wrap; line-height:1.6; }
+  .me .bubble { background:var(--accent); color:#fff; }
+  .bot .bubble { background:#f6f7f9; border:1px solid var(--line); }
+  .bot .bubble.warn { background:#fff8e6; border-color:#f0d9a0; }
+  .toggle { font-size:12px; color:var(--muted); cursor:pointer; margin-top:6px; user-select:none; }
+  .trace { margin-top:8px; }
+  .step { border-left:3px solid var(--line); padding:6px 0 6px 10px; margin:8px 0; font-size:13px; }
+  .kv { font-size:12.5px; margin:3px 0; }
   .kv i { color:var(--muted); font-style:normal; }
-  .obs { background:#f6f7f9; border-radius:6px; padding:6px 8px; font-size:12px; white-space:pre-wrap; max-height:180px; overflow:auto; }
+  .obs { background:#f6f7f9; border-radius:6px; padding:6px 8px; font-size:12px; white-space:pre-wrap; max-height:150px; overflow:auto; }
+  .meta { color:var(--muted); font-size:12px; margin-bottom:8px; }
+  .mem h3 { font-size:13px; margin:0 0 8px; color:var(--mem); }
+  .mem .fact { background:#f4f0fc; border-radius:6px; padding:5px 8px; font-size:13px; margin-bottom:5px; }
+  .mem .fact b { color:#4a2b93; }
+  .empty { color:var(--muted); font-size:12.5px; }
+  .hist { font-size:12px; color:#4a5158; border-bottom:1px dashed var(--line); padding:5px 0; }
+  .hist b { color:var(--muted); font-weight:400; }
   .err { color:#c0392b; font-size:13px; }
+  .note { font-size:12px; color:var(--muted); margin-top:8px; line-height:1.6; }
 </style>
 </head>
 <body>
-<h1>Agent 对比台</h1>
-<div class="sub">同一批工具、同一个模型：左边是手写 ReAct 循环（文本协议 + 正则解析），右边是 Spring AI 原生 tool calling（结构化 tool_calls）</div>
+<h1>企业助理 Agent</h1>
+<div class="sub">多轮对话 + 记忆 + 工具（查知识库 / 算数 / 时间 / 记画像）。知识来自 作品 1 的 rag-demo。</div>
 
-<div class="card">
-  <div class="tools" id="tools"></div>
+<div class="tabs">
+  <button id="tab-chat" class="on" onclick="showTab('chat')">多轮对话</button>
+  <button id="tab-cmp" onclick="showTab('cmp')">对照实验（手写 vs 框架）</button>
 </div>
 
-<div class="card">
-  <input type="text" id="q" value="员工手册说每周最多几天远程办公？按一个月 4.3 周算，一个月最多几天？">
-  <div>
-    <button class="primary" onclick="run('both')">两个都跑（推荐）</button>
-    <button onclick="run('react')">只跑手写 ReAct</button>
-    <button onclick="run('native')">只跑框架 Tool Calling</button>
+<!-- ============ 多轮对话 ============ -->
+<div id="view-chat">
+  <div class="layout">
+    <div>
+      <div class="card">
+        <div class="who">
+          <span>用户</span><input type="text" id="userId" value="u1">
+          <span>会话</span><input type="text" id="sessionId" value="s-demo">
+          <span>实现</span>
+          <select id="mode" style="padding:8px;border:1px solid var(--line);border-radius:8px;font-size:13px">
+            <option value="react">手写 ReAct</option>
+            <option value="native">框架 Tool Calling</option>
+          </select>
+          <button onclick="clearMem()">清空记忆</button>
+        </div>
+        <div class="note">换个「用户」= 换个人；换个「会话」= 同一个人开新对话（长期画像保留、短期历史清空）。</div>
+      </div>
+
+      <div class="card">
+        <div class="chat" id="chat"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="q" style="flex:1" placeholder="例如：我入职多久了？（配合下面的一键示例看记忆效果）"
+                 onkeydown="if(event.key==='Enter')send()">
+          <button class="primary" id="sendBtn" onclick="send()">发送</button>
+        </div>
+        <div style="margin-top:10px">
+          <button onclick="fill('我叫张三，在技术部，2026年3月入职的，记一下')">① 让它记住我</button>
+          <button onclick="fill('试用期能申请远程办公吗？')">② 查制度</button>
+          <button onclick="fill('那转正以后呢？')">③ 追问（靠短期记忆）</button>
+          <button onclick="fill('我入职多久了？')">④ 靠长期画像 + 算数</button>
+        </div>
+        <div class="note">
+          ①③④ 是一组演示：① 写进长期画像 → ③ 的「那」必须靠上一轮历史才懂 → ④ 需要画像里的入职时间。
+          刷新页面或换个会话再问 ④，仍然答得出来——这就是长期记忆和短期记忆的区别。
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card mem">
+        <h3>长期记忆 · 用户画像</h3>
+        <div id="profile"></div>
+        <h3 style="margin-top:14px">短期记忆 · 本会话历史</h3>
+        <div id="history"></div>
+        <div class="note" id="memMeta"></div>
+      </div>
+      <div class="card">
+        <div class="tools" id="tools"></div>
+      </div>
+    </div>
   </div>
 </div>
 
-<div class="cols">
-  <div class="card"><div class="col" id="col-react"><h2>① 手写 ReAct</h2><div class="meta">等待运行…</div></div></div>
-  <div class="card"><div class="col" id="col-native"><h2>② 框架 Tool Calling</h2><div class="meta">等待运行…</div></div></div>
+<!-- ============ 对照实验（原样保留）============ -->
+<div id="view-cmp" style="display:none">
+  <div class="card">
+    <input type="text" id="cq" style="width:100%" value="员工手册说每周最多几天远程办公？按一个月 4.3 周算，一个月最多几天？">
+    <div>
+      <button class="primary" onclick="runCompare('both')">两个都跑</button>
+      <button onclick="runCompare('react')">只跑手写 ReAct</button>
+      <button onclick="runCompare('native')">只跑框架 Tool Calling</button>
+    </div>
+    <div class="note">这条路径**不读写记忆**（每次都是全新会话），保证两边变量一致——记忆只由「多轮对话」写。</div>
+  </div>
+  <div class="layout" style="grid-template-columns:1fr 1fr">
+    <div class="card"><div id="col-react"><h2 style="font-size:15px">① 手写 ReAct</h2><div class="meta">等待运行…</div></div></div>
+    <div class="card"><div id="col-native"><h2 style="font-size:15px">② 框架 Tool Calling</h2><div class="meta">等待运行…</div></div></div>
+  </div>
 </div>
 
 <script>
@@ -57,40 +133,90 @@ fetch('/api/agent/tools').then(r => r.json()).then(list => {
     list.map(t => `<span title="${esc(t.description)}">${esc(t.name)}</span>`).join('');
 });
 
-async function run(which) {
-  const q = document.getElementById('q').value.trim();
-  if (!q) return;
-  document.querySelectorAll('button').forEach(b => b.disabled = true);
-  const targets = which === 'both' ? ['react', 'native'] : [which];
-  const pending = targets.map(t => load(t, q));
-  await Promise.all(pending);
-  document.querySelectorAll('button').forEach(b => b.disabled = false);
+function showTab(which) {
+  document.getElementById('view-chat').style.display = which === 'chat' ? '' : 'none';
+  document.getElementById('view-cmp').style.display = which === 'cmp' ? '' : 'none';
+  document.getElementById('tab-chat').className = which === 'chat' ? 'on' : '';
+  document.getElementById('tab-cmp').className = which === 'cmp' ? 'on' : '';
 }
 
-async function load(kind, q) {
-  const box = document.getElementById('col-' + kind);
-  box.innerHTML = `<h2>${kind === 'react' ? '① 手写 ReAct' : '② 框架 Tool Calling'}</h2><div class="meta">运行中…</div>`;
+function fill(text) { document.getElementById('q').value = text; document.getElementById('q').focus(); }
+
+function scrollChat() {
+  const c = document.getElementById('chat');
+  c.scrollTop = c.scrollHeight;
+}
+
+function addTurn(role, text, warn) {
+  const div = document.createElement('div');
+  div.className = 'turn ' + (role === 'user' ? 'me' : 'bot');
+  div.innerHTML = `<div class="bubble${warn ? ' warn' : ''}">${esc(text)}</div>`;
+  document.getElementById('chat').appendChild(div);
+  scrollChat();
+  return div.querySelector('.bubble');
+}
+
+async function send() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  document.getElementById('q').value = '';
+  addTurn('user', q);
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  const bubble = addTurn('assistant', '思考中…');
+  bubble.innerHTML = '<span class="empty">思考中…</span>';
+
   try {
-    const r = await fetch(`/api/agent/${kind}?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    render(box, kind, data);
+    const resp = await fetch('/api/agent/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: document.getElementById('sessionId').value.trim(),
+        userId: document.getElementById('userId').value.trim(),
+        question: q,
+        mode: document.getElementById('mode').value
+      })
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + (await resp.text()).slice(0, 200));
+    const data = await resp.json();
+    const r = data.result;
+    bubble.textContent = r.answer;
+    if (!r.finished) bubble.classList.add('warn');
+    bubble.appendChild(traceNode(r, data));
+    renderMemory(data.profile, data.history);
   } catch (e) {
-    box.innerHTML += `<div class="err">请求失败：${esc(e.message)}</div>`;
+    bubble.innerHTML = `<span class="err">请求失败：${esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    document.getElementById('q').focus();
   }
 }
 
-function render(box, kind, data) {
-  const title = kind === 'react' ? '① 手写 ReAct' : '② 框架 Tool Calling';
-  const warn = data.finished ? '' : ' warn';
-  let html = `<h2>${title}</h2>
-    <div class="meta">${data.steps.length} 步 · ${data.totalMs} ms${data.finished ? '' : ' · ⚠️ 未正常收敛'}</div>
-    <div class="answer${warn}">${esc(data.answer)}</div>`;
-  for (const s of data.steps) {
+/* 轨迹默认折叠：对话界面里先看答案，要追问"它到底怎么想到的"再展开 */
+function traceNode(r, data) {
+  const wrap = document.createElement('div');
+  const steps = (r.steps || []).filter(s => s.action || s.thought);
+  const toggle = document.createElement('div');
+  toggle.className = 'toggle';
+  let open = false;
+  const body = document.createElement('div');
+  body.className = 'trace';
+  body.style.display = 'none';
+
+  toggle.textContent = `▸ 展开执行轨迹（${r.steps.length} 步 · ${r.totalMs} ms · ${r.mode}）`;
+  toggle.onclick = () => {
+    open = !open;
+    body.style.display = open ? '' : 'none';
+    toggle.textContent = (open ? '▾ ' : '▸ ') + `展开执行轨迹（${r.steps.length} 步 · ${r.totalMs} ms · ${r.mode}）`;
+  };
+
+  let html = '';
+  for (const s of r.steps) {
     html += `<div class="step"><b>第 ${s.step} 步</b>`;
     if (s.thought) html += `<div class="kv"><i>Thought：</i>${esc(s.thought)}</div>`;
     if (s.action) {
-      const json = (s.input || '').trim().startsWith('{') ? '（框架传的是结构化 JSON 参数）' : '';
-      html += `<div class="kv"><i>Action：</i>${esc(s.action)}<i>　输入：</i>${esc(s.input || '—')} <i>${json}</i></div>`;
+      html += `<div class="kv"><i>Action：</i><b>${esc(s.action)}</b><i>　输入：</i>${esc(s.input || '—')}</div>`;
       html += `<div class="obs">${esc(s.observation)}</div>`;
     } else {
       html += `<div class="kv"><i>（本步未调工具，直接给出最终回答）</i></div>`;
@@ -100,12 +226,92 @@ function render(box, kind, data) {
       : '含模型调用与工具执行';
     html += `<div class="kv"><i>耗时：</i>${s.costMs} ms <i>（${scope}）</i></div></div>`;
   }
-  box.innerHTML = html;
+  if (data) {
+    html += `<div class="kv"><i>本轮之后，短期记忆有 ${(data.history || []).length} 条消息；画像有 ${Object.keys(data.profile || {}).length} 条</i></div>`;
+  }
+  body.innerHTML = html;
+  wrap.appendChild(toggle);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function renderMemory(profile, history) {
+  const p = document.getElementById('profile');
+  const keys = Object.keys(profile || {});
+  p.innerHTML = keys.length
+    ? keys.map(k => `<div class="fact"><b>${esc(k)}</b>：${esc(profile[k])}</div>`).join('')
+    : '<div class="empty">（暂无）换个用户就是空的了——画像按 userId 隔离</div>';
+
+  const h = document.getElementById('history');
+  h.innerHTML = (history || []).length
+    ? history.map(t => `<div class="hist"><b>${t.role === 'user' ? '用户' : '助手'}：</b>${esc(t.content.slice(0, 70))}${t.content.length > 70 ? '…' : ''}</div>`).join('')
+    : '<div class="empty">（本会话还没有历史）</div>';
+
+  document.getElementById('memMeta').textContent =
+    `会话 id：${document.getElementById('sessionId').value} · 用户 id：${document.getElementById('userId').value}`;
+}
+
+async function clearMem() {
+  const u = document.getElementById('userId').value.trim();
+  const s = document.getElementById('sessionId').value.trim();
+  await fetch(`/api/agent/memory?userId=${encodeURIComponent(u)}&sessionId=${encodeURIComponent(s)}`, { method: 'DELETE' });
+  document.getElementById('chat').innerHTML = '';
+  renderMemory({}, []);
+}
+
+async function refreshMemory() {
+  const u = document.getElementById('userId').value.trim();
+  const s = document.getElementById('sessionId').value.trim();
+  const r = await fetch(`/api/agent/memory?userId=${encodeURIComponent(u)}&sessionId=${encodeURIComponent(s)}`);
+  const d = await r.json();
+  renderMemory(d.profile, d.history);
+}
+
+/* ---------- 对照实验 ---------- */
+async function runCompare(which) {
+  const q = document.getElementById('cq').value.trim();
+  if (!q) return;
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  const targets = which === 'both' ? ['react', 'native'] : [which];
+  await Promise.all(targets.map(t => loadCompare(t, q)));
+  document.querySelectorAll('button').forEach(b => b.disabled = false);
+}
+
+async function loadCompare(kind, q) {
+  const box = document.getElementById('col-' + kind);
+  const title = kind === 'react' ? '① 手写 ReAct' : '② 框架 Tool Calling';
+  box.innerHTML = `<h2 style="font-size:15px">${title}</h2><div class="meta">运行中…</div>`;
+  try {
+    const r = await fetch(`/api/agent/${kind}?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    const warn = data.finished ? '' : ' warn';
+    let html = `<h2 style="font-size:15px">${title}</h2>
+      <div class="meta">${data.steps.length} 步 · ${data.totalMs} ms${data.finished ? '' : ' · ⚠️ 未正常收敛'}</div>
+      <div class="bubble${warn}" style="max-width:100%">${esc(data.answer)}</div>`;
+    for (const s of data.steps) {
+      html += `<div class="step"><b>第 ${s.step} 步</b>`;
+      if (s.thought) html += `<div class="kv"><i>Thought：</i>${esc(s.thought)}</div>`;
+      if (s.action) {
+        const isJson = (s.input || '').trim().startsWith('{') ? '（框架传的是结构化 JSON 参数）' : '';
+        html += `<div class="kv"><i>Action：</i><b>${esc(s.action)}</b><i>　输入：</i>${esc(s.input || '—')} <i>${isJson}</i></div>`;
+        html += `<div class="obs">${esc(s.observation)}</div>`;
+      } else {
+        html += `<div class="kv"><i>（本步未调工具，直接给出最终回答）</i></div>`;
+      }
+      const scope = s.costScope === 'tool-only' ? '仅工具执行——模型调用在框架内部，这里测不到' : '含模型调用与工具执行';
+      html += `<div class="kv"><i>耗时：</i>${s.costMs} ms <i>（${scope}）</i></div></div>`;
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML += `<div class="err">请求失败：${esc(e.message)}</div>`;
+  }
 }
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
+
+refreshMemory();
 </script>
 </body>
 </html>
