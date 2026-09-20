@@ -5,7 +5,9 @@
 > 和一处设计（错误该用哪种形式返回）。
 >
 > 代码：`src/main/java/com/example/agentdemo/mcp/`（手写，不依赖 MCP SDK）
-> 验证：`mcp_regression.py` 9/9 通过 + `mcp_stdout_purity.py` 纯净化断言
+> 验证：自测 `mcp_regression.py` 9/9 + `mcp_stdout_purity.py` 纯净化断言，
+> 外加**官方 MCP Inspector** 的第三方验证（`--strict` 零 schema 问题，`isError` 被官方客户端识别）。
+> 两版协议的兼容性我 diff 过 schema，不是凭印象——见 §十。
 
 ## 一、为什么要先手写一遍
 
@@ -217,14 +219,103 @@ MCP 给了两个都不太理想的出口：
 里面 `new UserProfileStore(20, 200)` 出来的内存，和 Web 服务（8083）那个**不共享**。
 这不是 bug，是"内存态记忆不跨实例"的真实体现——同一条已经写在 README 的已知局限里。
 
-## 九、还没验证的（别当结论讲）
+## 九、第三方验证：官方 MCP Inspector
 
-- **官方 MCP Inspector 没跑过**（`npx @modelcontextprotocol/inspector`）。
-  现在的 9/9 全部是**我自己写的客户端**测的——
-  自测能证明"我的实现符合我理解的规范"，**证明不了"我的理解就是规范"**。
-  这一条必须由第三方客户端来补。
-- **Claude Desktop 接入没试过**。
+自测有个绕不过去的效力边界：**它只能证明"我的实现符合我理解的规范"，
+证明不了"我的理解就是规范"**。所以必须拿官方客户端验一遍。
+
+### 怎么跑起来（Windows 上折腾了几轮，记下来）
+
+Inspector 的 CLI 模式不接受命令行上的 `-cp`——**`-cp` 会被 commander 当成自己的选项吃掉**，
+然后类名就成了"目标服务器"，报出来的是 Java 的 usage，看着跟 MCP 毫无关系。
+试过三种传参顺序，只有走配置文件这条路是通的：
+
+```json
+{
+  "mcpServers": {
+    "agent-demo": {
+      "command": "java",
+      "args": ["-Dfile.encoding=UTF-8", "-cp",
+               "F:/.../target/classes;F:/.../target/dependency/*",
+               "com.example.agentdemo.mcp.McpStdioServer"]
+    }
+  }
+}
+```
+
+```bash
+npx -y @modelcontextprotocol/inspector --cli \
+    --config ./mcp-config.json --server agent-demo --method=tools/list
+```
+
+顺带说明：**这个配置文件的格式就是 Claude Desktop 的配置格式**，
+所以这份文件不只是测试用的，接 Claude Desktop 时还是它。
+
+中间踩的两个坑（都属于"和 MCP 无关、但会让你以为 MCP 出问题了"）：
+- **命令行太长**：classpath 展开有 9007 字节，npx→node→spawn 这条链撑不住。
+  解法是 `mvn dependency:copy-dependencies` 把依赖收进一个目录，用 `dir/*` 通配符——
+  从 9007 字节缩到 100 字节以内。
+- **`@argfile` 也试过，失败**：Java 读参数文件用的是**平台默认编码**，
+  而我写进去的是 UTF-8 的中文路径（项目在 `F:\转型计划\`），路径直接解错，
+  报的是 `ClassNotFoundException`。这条本身值得记：**中文路径 + 非 ASCII 的参数文件是个雷区。**
+
+### 官方客户端验到了什么
+
+| 项 | 结果 |
+|---|---|
+| 握手 | 成功，`clientInfo=inspector-cli` |
+| 工具清单 | 5 个工具全部拿到 |
+| **工具 schema 可移植性**（`--strict`） | **退出码 0，零 error 级问题** |
+| 工具成功调用 | `calculator input=1+1` → `1+1 = 2` |
+| 工具失败调用 | 我的 `isError:true` 被官方客户端**认出来**：`{"code":"tool_is_error"}` |
+
+最后一行是这次最有价值的验证：`isError` 这个设计不是我自己觉得对，
+是**官方客户端真的会读这个字段并把它当错误**。
+
+### 但它没验到什么（这个边界要说清）
+
+试"不存在的工具"时，Inspector 返回 `tool_not_found`，可是**我的 server 根本没收到这个请求**——
+它从 `tools/list` 就知道没有这个名字，在客户端侧就拦下了。
+（判断依据：那次输出里只有 `initialize` 的日志，没有 `tools/call` 的日志。）
+
+所以：
+- **`-32602`（工具不存在）这条路，官方客户端没走过**，是我自己写的客户端验的。
+- `-32601`（不支持的方法）、通知的处理，同样没有被第三方验过。
+- **Claude Desktop 接入仍然没试过。**
 - **Spring AI MCP starter 版还没写**，"框架替我省了什么"这半段对比目前是空的。
-- 协议版本协商只测了客户端报同一个版本的情况，
-  **客户端报一个我不支持的版本时**客户端会不会按规范断开，没测。
-- 并发：没测过多个客户端同时连。
+
+## 十、顺带查实的一件事：我说"支持 2025-11-25"有依据吗
+
+Inspector 协商时**要的是 `2025-11-25`**，而我只读过 2025-06-18 的规范就把它列进了
+`SUPPORTED_VERSIONS`。它这次碰巧通了——但"碰巧通了"不是依据，得去验。
+
+先读 [changelog](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-11-25/changelog.mdx)：
+新增的都是**可选能力**（OIDC 发现、图标、elicitation 枚举、sampling 的工具调用、实验性的 tasks）。
+
+但"新增都是可选的"仍然只是印象。于是把两版 schema 的 `$defs` 拉下来，
+对我用到的那几个定义逐条 diff：
+
+| 定义 | 差异 |
+|---|---|
+| `InitializeResult` / `CallToolResult` / `ListToolsResult` | **只有文档链接和 `$ref` 路径**（`#/definitions/` → `#/$defs/`），零语义变化 |
+| `Tool.inputSchema.type` | 两版都是 `{"const": "object"}` 且 `required: ["type"]` —— **完全一致** |
+| `Tool` | 多了 `execution`、`icons`，都是**可选**字段 |
+| `InitializeRequest.required` | 06-18 是 `[method, params]`，11-25 是 `[id, jsonrpc, method, params]` |
+
+最后一行是唯一的实质变化，而且**在请求侧**：11-25 明确要求请求带 `id`/`jsonrpc`。
+我的响应本来就带这两个字段，所以不受影响。
+
+结论（有依据的版本）：**我实现的这四个方法在两版之间语义兼容，
+差异只有文档引用、`$ref` 写法、两个可选新字段，以及请求侧一处 required 收紧。**
+
+> 这段本身比结论更值得说：一开始我写的是"它碰巧通了"，
+> 停在这里就等于**把没验证的东西当成已知**。多花十分钟 diff 一遍 schema，
+> 才把"我以为"换成了"我查过"。
+
+## 十一、还没验证的（别当结论讲）
+
+- **Claude Desktop 接入没试过**（配置文件已经有了，见 §九）。
+- **Spring AI MCP starter 版还没写**，"框架替我省了什么"这半段对比目前是空的。
+- **客户端报一个我不支持的版本时，客户端会不会按规范断开**——没测。
+- **并发**：没测过多个客户端同时连。
+- Inspector 验不了的那几条见 §九末尾（`-32602`、`-32601`、通知）。
