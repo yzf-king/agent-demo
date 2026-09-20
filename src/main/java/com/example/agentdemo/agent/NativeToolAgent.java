@@ -95,9 +95,12 @@ public class NativeToolAgent {
     private ToolCallback recordingCallback(Tool tool, List<AgentStep> steps, AtomicInteger counter) {
         // 参数必须包成对象（见 ToolInput 的注释：直接给 String.class 会被 DeepSeek 判 400）
         // 用接收 ToolContext 的 BiFunction 重载：需要上下文的工具（记用户画像）靠它拿到 userId
+        // 走 registry.execute 而不是直接 tool.run：让两条路径的异常兜底行为完全一致
+        // （W3 吃过"两条路径规矩不一样"的亏，见 AgentPrompts 的注释）
         BiFunction<ToolInput, ToolContext, String> fn = (in, toolCtx) -> {
             String input = in == null || in.input() == null ? "" : in.input();
-            return tool.run(input, toolCtx == null ? Map.of() : toolCtx.getContext());
+            return registry.execute(tool.name(), input,
+                    toolCtx == null ? Map.of() : toolCtx.getContext()).text();
         };
         FunctionToolCallback<ToolInput, String> inner = FunctionToolCallback
                 .builder(tool.name(), fn)

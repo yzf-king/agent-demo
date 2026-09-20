@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import com.example.agentdemo.agent.Tool;
+import com.example.agentdemo.agent.ToolFailureException;
 
 /**
  * 知识检索工具：调用 rag-demo（作品 1）的只读检索接口 POST /api/knowledge/search。
@@ -62,9 +63,15 @@ public class KnowledgeSearchTool implements Tool {
                     .body(new ParameterizedTypeReference<List<Hit>>() {
                     });
         } catch (RestClientException e) {
-            // 工具不可用也要好好说话：Agent 收到这句会告诉用户"服务没起"，而不是编答案
-            return "知识库服务不可用（" + baseUrl + "）：" + e.getMessage()
-                    + "。请先启动 rag-demo（作品 1）。";
+            // 工具不可用也要好好说话：Agent 收到这句会告诉用户"服务没起"，而不是编答案。
+            //
+            // 注意这里**抛异常而不是 return 一句话**——最初写的是 return，理由是"提示更友好"。
+            // 结果 MCP 那边测出：下游 8081 没启动时，返回的报文里没有 isError，
+            // 客户端以为检索成功了。因为"能好好说话"和"能标记失败"被我当成了二选一，
+            // 其实不是：抛 ToolFailureException，ToolRegistry 会把消息原文包成
+            // 【工具执行失败】... 照样友好，同时 error 标志也对了。两条路径都受益。
+            throw new ToolFailureException("知识库服务不可用（" + baseUrl + "）：" + e.getMessage()
+                    + "。请先启动 rag-demo（作品 1）。");
         }
         if (hits == null || hits.isEmpty()) {
             return "知识库为空，或没有检索到与「" + input + "」相关的内容。";

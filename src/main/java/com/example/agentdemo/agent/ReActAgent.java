@@ -97,7 +97,9 @@ public class ReActAgent {
 
             String action = actionMatcher.group(1).trim();
             String input = firstGroup(ACTION_INPUT, output).replace("\n", " ").trim();
-            String observation = registry.execute(action, input, ctx.toolContext());
+            // 只要文本：文本协议里错误和正常结果都是"一段给模型看的字"，
+            // error 标志在这条路径上没有用武之地（那边是给 MCP 客户端的）
+            String observation = registry.execute(action, input, ctx.toolContext()).text();
 
             steps.add(new AgentStep(step, thought, action, input, observation, cost, "model+tool"));
             // 回填：把模型这轮的原话 + 工具的真实结果接在轨迹后面，下一轮一起发回去

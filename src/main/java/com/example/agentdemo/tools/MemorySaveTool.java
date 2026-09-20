@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 import com.example.agentdemo.agent.Tool;
+import com.example.agentdemo.agent.ToolFailureException;
 import com.example.agentdemo.memory.UserProfileStore;
 
 /**
@@ -56,7 +57,7 @@ public class MemorySaveTool implements Tool {
 
         String raw = input == null ? "" : input.trim();
         if (raw.isEmpty()) {
-            return "【参数格式不对】需要 `key=value`，例如 `部门=技术部`。你传的是空字符串。";
+            throw new ToolFailureException("需要 `key=value`，例如 `部门=技术部`。你传的是空字符串。");
         }
 
         // 模型经常把多组信息挤在一行（实测 `姓名=王五, 部门=市场部` 被当成一个键，两条事实并成一个）。
@@ -70,20 +71,18 @@ public class MemorySaveTool implements Tool {
             }
             int sep = firstSeparator(segment);
             if (sep <= 0 || sep == segment.length() - 1) {
-                return "【参数格式不对】每一段都要是 `key=value`，收到的是「" + segment
-                        + "」。整串原文：" + raw;
+                throw new ToolFailureException("每一段都要是 `key=value`，收到的是「" + segment
+                        + "」。整串原文：" + raw);
             }
             String key = segment.substring(0, sep).trim();
             String value = segment.substring(sep + 1).trim();
             String error = profiles.put(userId, key, value);
             if (error != null) {
-                return "【未能记住】" + error;
+                throw new ToolFailureException(error);
             }
             ok.append(key).append(" = ").append(value).append("；");
         }
-        return ok.isEmpty()
-                ? "【参数格式不对】没解析出任何 key=value，原文：" + raw
-                : "已记住：" + ok;
+        return ok.isEmpty() ? "没解析出任何 key=value，原文：" + raw : "已记住：" + ok;
     }
 
     /**

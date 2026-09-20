@@ -42,25 +42,30 @@ public class ToolRegistry {
     }
 
     /** 执行工具。永不抛异常：失败信息也是给模型的 Observation */
-    public String execute(String name, String input) {
+    public ToolResult execute(String name, String input) {
         return execute(name, input, Map.of());
     }
 
     /**
      * 带上下文执行。context 里放的是"模型拿不到、也编不出来"的运行时信息，
      * 比如当前 userId——所以不能进 prompt，只能从这里递给工具。
+     *
+     * 三种"工具不存在 / 软失败 / 意外异常"都归一成 ToolResult(error=true)，
+     * 调用方（Agent、MCP server）从此不用再自己猜哪句是错误。
      */
-    public String execute(String name, String input, Map<String, Object> context) {
+    public ToolResult execute(String name, String input, Map<String, Object> context) {
         Tool tool = tools.get(name);
         if (tool == null) {
-            return "【工具不存在】可用工具：" + String.join("、", tools.keySet());
+            return ToolResult.fail("【工具不存在】可用工具：" + String.join("、", tools.keySet()));
         }
         try {
-            String out = tool.run(input, context == null ? Map.of() : context);
-            return (out == null || out.isBlank()) ? "【工具返回空】" : out;
+            return ToolResult.ok(tool.run(input, context == null ? Map.of() : context));
+        } catch (ToolFailureException e) {
+            // 软失败：原因写清楚了，模型有机会自己改一次
+            return ToolResult.fail("【工具执行失败】" + e.getMessage());
         } catch (Exception e) {
             log.warn("工具 {} 执行失败：{}", name, e.getMessage());
-            return "【工具执行失败】" + e.getClass().getSimpleName() + ": " + e.getMessage();
+            return ToolResult.fail("【工具执行失败】" + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
     }
 }
