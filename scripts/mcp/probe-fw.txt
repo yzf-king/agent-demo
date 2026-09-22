@@ -1,0 +1,30 @@
+main class = com.example.agentdemo.mcp.McpFrameworkServer
+等 14.0s 让它启动完……
+
+============================================================
+stdout：共 17 行，其中合法 JSON-RPC 2 行
+============================================================
+  [★污染] 2026-09-20T16:42:26.088+08:00  INFO 29480 --- [agent-demo] [           main] c.e.agentdemo.mcp.McpFrameworkServer     : Starting McpFrameworkServer us
+  [★污染] 2026-09-20T16:42:26.094+08:00  INFO 29480 --- [agent-demo] [           main] c.e.agentdemo.mcp.McpFrameworkServer     : No active profile set, falling
+  [★污染] 2026-09-20T16:42:27.498+08:00  WARN 29480 --- [agent-demo] [           main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.ai.m
+  [★污染] 2026-09-20T16:42:27.501+08:00  WARN 29480 --- [agent-demo] [           main] trationDelegate$BeanPostProcessorChecker : Bean 'serverAnnotatedBeanRegis
+  [★污染] 2026-09-20T16:42:27.525+08:00  WARN 29480 --- [agent-demo] [           main] trationDelegate$BeanPostProcessorChecker : Bean 'spring.ai.mcp.server.ann
+  [★污染] 2026-09-20T16:42:28.504+08:00  WARN 29480 --- [agent-demo] [           main] o.s.m.provider.tool.SyncMcpToolProvider  : No tool methods found in the p
+  [★污染] 2026-09-20T16:42:28.631+08:00  INFO 29480 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable tools capabilities, not
+  [★污染] 2026-09-20T16:42:28.634+08:00  INFO 29480 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Registered tools: 5
+  [★污染] 2026-09-20T16:42:28.634+08:00  INFO 29480 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable resources capabilities,
+  [★污染] 2026-09-20T16:42:28.641+08:00  INFO 29480 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable resources templates cap
+  [★污染] 2026-09-20T16:42:28.642+08:00  INFO 29480 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable prompts capabilities, n
+  [★污染] 2026-09-20T16:42:28.642+08:00  INFO 29480 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable completions capabilitie
+  [★污染] 2026-09-20T16:42:29.405+08:00  INFO 29480 --- [agent-demo] [           main] c.e.agentdemo.mcp.McpFrameworkServer     : Started McpFrameworkServer in 
+  [★污染] 2026-09-20T16:42:38.233+08:00  INFO 29480 --- [agent-demo] [pool-2-thread-1] i.m.server.McpAsyncServer                : Client initialize request - Pr
+  [★污染] 2026-09-20T16:42:38.243+08:00  WARN 29480 --- [agent-demo] [pool-2-thread-1] i.m.server.McpAsyncServer                : Client requested unsupported p
+  [JSON] id=1 keys=['jsonrpc', 'id', 'result']
+  [JSON] id=2 keys=['jsonrpc', 'id', 'result']
+         工具 = ['knowledge_search', 'calculator', 'weather', 'memory_save', 'current_time']
+
+============================================================
+stderr：共 0 行
+============================================================
+
+退出码 = 0

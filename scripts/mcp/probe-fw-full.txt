@@ -1,0 +1,30 @@
+main class = com.example.agentdemo.mcp.McpFrameworkServer
+等 14.0s 让它启动完……
+
+============================================================
+stdout：共 17 行，其中合法 JSON-RPC 2 行
+============================================================
+  [★污染] 2026-09-20T17:47:35.634+08:00  INFO 30324 --- [agent-demo] [           main] c.e.agentdemo.mcp.McpFrameworkServer     : Starting McpFrameworkServer using Java 21.0.8 with PID 30324 (F:\转型计划\agent-demo\target\classes started by YZF in F:\转型计划\agent-demo\scripts\mcp)
+  [★污染] 2026-09-20T17:47:35.640+08:00  INFO 30324 --- [agent-demo] [           main] c.e.agentdemo.mcp.McpFrameworkServer     : No active profile set, falling back to 1 default profile: "default"
+  [★污染] 2026-09-20T17:47:37.297+08:00  WARN 30324 --- [agent-demo] [           main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.ai.mcp.server.common.autoconfigure.annotations.McpServerAnnotationScannerAutoConfiguration' of type [org.springframework.ai.mcp.server.common.autoconfigure.annotations.McpServerAnnotationScannerAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [serverAnnotatedMethodBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+  [★污染] 2026-09-20T17:47:37.299+08:00  WARN 30324 --- [agent-demo] [           main] trationDelegate$BeanPostProcessorChecker : Bean 'serverAnnotatedBeanRegistry' of type [org.springframework.ai.mcp.server.common.autoconfigure.annotations.McpServerAnnotationScannerAutoConfiguration$ServerMcpAnnotatedBeans] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [serverAnnotatedMethodBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+  [★污染] 2026-09-20T17:47:37.328+08:00  WARN 30324 --- [agent-demo] [           main] trationDelegate$BeanPostProcessorChecker : Bean 'spring.ai.mcp.server.annotation-scanner-org.springframework.ai.mcp.server.common.autoconfigure.annotations.McpServerAnnotationScannerProperties' of type [org.springframework.ai.mcp.server.common.autoconfigure.annotations.McpServerAnnotationScannerProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [serverAnnotatedMethodBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+  [★污染] 2026-09-20T17:47:38.299+08:00  WARN 30324 --- [agent-demo] [           main] o.s.m.provider.tool.SyncMcpToolProvider  : No tool methods found in the provided tool objects: []
+  [★污染] 2026-09-20T17:47:38.414+08:00  INFO 30324 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable tools capabilities, notification: true
+  [★污染] 2026-09-20T17:47:38.416+08:00  INFO 30324 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Registered tools: 5
+  [★污染] 2026-09-20T17:47:38.417+08:00  INFO 30324 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable resources capabilities, notification: true
+  [★污染] 2026-09-20T17:47:38.419+08:00  INFO 30324 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable resources templates capabilities, notification: true
+  [★污染] 2026-09-20T17:47:38.427+08:00  INFO 30324 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable prompts capabilities, notification: true
+  [★污染] 2026-09-20T17:47:38.428+08:00  INFO 30324 --- [agent-demo] [           main] o.s.a.m.s.c.a.McpServerAutoConfiguration : Enable completions capabilities
+  [★污染] 2026-09-20T17:47:39.075+08:00  INFO 30324 --- [agent-demo] [           main] c.e.agentdemo.mcp.McpFrameworkServer     : Started McpFrameworkServer in 4.209 seconds (process running for 4.935)
+  [★污染] 2026-09-20T17:47:48.130+08:00  INFO 30324 --- [agent-demo] [pool-2-thread-1] i.m.server.McpAsyncServer                : Client initialize request - Protocol: 2025-06-18, Capabilities: ClientCapabilities[experimental=null, roots=null, sampling=null, elicitation=null], Info: Implementation[name=probe, title=null, version=1]
+  [★污染] 2026-09-20T17:47:48.141+08:00  WARN 30324 --- [agent-demo] [pool-2-thread-1] i.m.server.McpAsyncServer                : Client requested unsupported protocol version: 2025-06-18, so the server will suggest the 2024-11-05 version instead
+  [JSON] id=1 keys=['jsonrpc', 'id', 'result']
+  [JSON] id=2 keys=['jsonrpc', 'id', 'result']
+         工具 = ['knowledge_search', 'calculator', 'weather', 'memory_save', 'current_time']
+
+============================================================
+stderr：共 0 行
+============================================================
+
+退出码 = 0
