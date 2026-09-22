@@ -5,13 +5,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiFunction;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.function.FunctionToolCallback;
@@ -93,20 +91,9 @@ public class NativeToolAgent {
 
     /** 用 FunctionToolCallback 把 Tool 包成框架要求的回调，外面再套一层"记轨迹"的装饰 */
     private ToolCallback recordingCallback(Tool tool, List<AgentStep> steps, AtomicInteger counter) {
-        // 参数必须包成对象（见 ToolInput 的注释：直接给 String.class 会被 DeepSeek 判 400）
-        // 用接收 ToolContext 的 BiFunction 重载：需要上下文的工具（记用户画像）靠它拿到 userId
-        // 走 registry.execute 而不是直接 tool.run：让两条路径的异常兜底行为完全一致
-        // （W3 吃过"两条路径规矩不一样"的亏，见 AgentPrompts 的注释）
-        BiFunction<ToolInput, ToolContext, String> fn = (in, toolCtx) -> {
-            String input = in == null || in.input() == null ? "" : in.input();
-            return registry.execute(tool.name(), input,
-                    toolCtx == null ? Map.of() : toolCtx.getContext()).text();
-        };
-        FunctionToolCallback<ToolInput, String> inner = FunctionToolCallback
-                .builder(tool.name(), fn)
-                .description(tool.description() + "（参数放进 input 字段）")
-                .inputType(ToolInput.class)
-                .build();
+        // 工具定义这段和 MCP 框架版共用（ToolCallbacks.of）——两条路的工具必须逐字相同，
+        // 否则对比实验测出来的差异不知道是协议造成的还是这里写的不同
+        FunctionToolCallback<ToolInput, String> inner = ToolCallbacks.of(tool, registry, Map.of());
 
         return new ToolCallback() {
             @Override

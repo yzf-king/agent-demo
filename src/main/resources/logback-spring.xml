@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  为什么需要这个文件：让 stdio 版 MCP server 的日志别写进 stdout。
+
+  背景：MCP 的 stdio 传输里 **stdout 就是协议通道**——服务器往 stdout 写的每一行
+  都必须是一条完整的 JSON-RPC 报文。而 Spring Boot 默认的 ConsoleAppender 恰恰写 stdout。
+  结果框架把启动日志和协议报文混在同一个流里发出去，客户端读到第一行
+  "Starting McpFrameworkServer..." 就解析失败。
+
+  这是实测出来的，不是推理出来的（scripts/mcp/mcp_probe.py）：
+  框架版 stdout 17 行里 **15 行是日志，只有 2 行是协议报文**；stderr 0 行。
+  也就是说"用了框架就自动遵守 stdout 纪律"是错的——它默认不管你，你得自己把日志挪开。
+  （我一开始就是这么以为的，还写进了 McpFrameworkServer 的注释里。）
+
+  为什么用 <springProfile> 而不是无条件改：这个文件对整个应用生效。
+  8083 那个 Web 应用的日志本来就该待在 stdout（和所有 Spring Boot 应用一样），
+  为了修一个入口去改另一个入口的行为，属于"顺手把别人家灯关了"。
+  stdio 入口启动时激活 mcp-stdio profile（见 McpFrameworkServer.main）。
+
+  文件名必须是 logback-spring.xml，不能叫 logback.xml：
+  <springProfile> 是 Spring Boot 对 logback 的扩展标签，只有 logback-spring.xml
+  会交给 Boot 的解析器处理。叫 logback.xml 会被日志系统抢先按标准 logback 配置解析，
+  springProfile 直接变成未知标签。
+
+  合规性：MCP 规范明确允许 server 往 stderr 写日志（客户端把它当诊断信息展示）。
+  所以这里一条日志都没丢，只是换了个流——这也是为什么这件事的修法应该是"改配置"
+  而不是"删日志"。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- 默认（8083 Web 应用）：完全保持 Spring Boot 原样，日志走 stdout -->
+    <springProfile name="!mcp-stdio">
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- stdio MCP server：同样的格式、同样的级别，只把目标换成 System.err。
+         charset 显式写 UTF-8——框架这边也要防编码坑（手写版踩过：Windows 上
+         System.out/err 默认按平台编码 GBK 输出，中文日志全是乱码） -->
+    <springProfile name="mcp-stdio">
+        <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+            <target>System.err</target>
+            <encoder>
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="STDERR"/>
+        </root>
+    </springProfile>
+</configuration>

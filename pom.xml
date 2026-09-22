@@ -45,6 +45,14 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
+        <!-- MCP Server（stdio）。和手写的 mcp/McpStdioServer 是同一个东西的两条路，
+             目的是对比"框架替我省了什么"。
+             注意：加了它之后 8083 那个 Web 应用也会带上这套自动配置——
+             stdio 默认是关的（spring.ai.mcp.server.stdio 默认 false），加完要确认 Web 侧行为没变。 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
