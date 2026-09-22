@@ -156,7 +156,7 @@ error 标志也对了**，ReAct 那条路径拿到的观察内容基本没变。
 > 同一条纪律，我从两个相反的方向各违反了一次。
 > 共同点都是**没有把"失败"当成类型层面的东西**——一次用文本猜，一次干脆丢掉。
 
-### 回归测试（9/9 通过）
+### 回归测试
 
 ```
 ① 成功            -> 有 result 且**无** isError
@@ -165,6 +165,8 @@ error 标志也对了**，ReAct 那条路径拿到的观察内容基本没变。
 ④ 不支持的方法    -> JSON-RPC error -32601
 ⑤ 下游服务挂了    -> result + isError:true，且文案仍是人话
 ```
+
+（当时是 9/9；后面为了跑框架版又加了几条断言，现在是 12/12，见 §十一。）
 
 ⑤ 是**专门造出来的**：把 `AGENT_KNOWLEDGE_BASE_URL` 指到死端口 `127.0.0.1:59999`，
 这样不管 rag-demo 起没起都能稳定复现，不依赖"记得别启动它"。
@@ -312,10 +314,203 @@ Inspector 协商时**要的是 `2025-11-25`**，而我只读过 2025-06-18 的�
 > 停在这里就等于**把没验证的东西当成已知**。多花十分钟 diff 一遍 schema，
 > 才把"我以为"换成了"我查过"。
 
-## 十一、还没验证的（别当结论讲）
+## 十一、框架版：它到底替我省了什么（逐条实测）
+
+`McpFrameworkServer` 用 `spring-ai-starter-mcp-server`，工具集和手写版**完全相同**
+（共用 `ToolCallbacks`，所以"谁来搬工具"是唯一变量）。
+
+先说结论，再说依据：**框架省掉的是协议状态机这一大块；
+但凡是我在工具定义和错误语义上要操心的，它一样都没省——而且有三处是"换了个地方要你操心"，
+比原来更隐蔽，因为默认行为看起来是对的。**
+
+### 11.1 真的省掉了
+
+| 事项 | 手写版要写 | 框架版要写 |
+|---|---|---|
+| JSON-RPC 状态机（initialize / 版本协商 / initialized / tools/list / tools/call / 错误码） | ~250 行里的大部分 | **0 行** |
+| 分帧（一行一条 JSON）、flush | 自己管 | 0 行 |
+| 工具的 JSON Schema | 自己写 `McpToolSchema` | 0 行（从 `inputType` 反射） |
+| 接工具 | — | **一个 `@Bean List<ToolCallback>`，3 行** |
+
+最后一行是收益的大头：手写版加一个工具要动 schema 和 tools/list 两处，框架版什么都不用动。
+
+### 11.2 没省掉，而且我一开始搞错了：stdout 纪律
+
+这条**我写反过**，所以放在最前面。我原本在 `McpFrameworkServer` 的注释里断言
+"框架自己管住了 stdout 纪律"——推理过程听着还挺顺：
+"手写版第一件事是把 `System.out` 重定向到 stderr，框架版不用写这行"。
+
+跑一次 `mcp_probe.py` 就打脸了：
+
+```
+stdout：共 17 行，其中合法 JSON-RPC 2 行
+  [★污染] ... Starting McpFrameworkServer ...
+  [★污染] ... (另外 14 行日志)
+stderr：共 0 行
+```
+
+**框架不但没管，它还让 Spring Boot 的 ConsoleAppender 正对着协议通道输出。**
+修法是加 `logback-spring.xml`，用 `mcp-stdio` profile 把日志挪到 stderr。
+修完：stdout 2 行全是 JSON，stderr 15 行全是日志。
+
+> 这一条的普适教训：**手写版需要你写的那行代码，框架版不会因为你"没用它"就不需要，
+> 它只是换了个地方需要你**——从"写一行重定向"变成"配一个 profile"，
+> 而且不跑起来看不出来。这也是为什么 §三 的纯净性检查对两条路都值得跑：
+> 手写版 4 行（3 条报文），框架版 4 行（3 条报文），`mcp_stdout_purity.py` 两边都 PASS。
+
+### 11.3 没省掉：失败语义（Bug C 从另一个门进来了）
+
+框架里 `isError` 是**写死的常量**。这是读 `McpToolUtils` 字节码看到的事实，不是推断：
+成功路径压 `iconst_0`，只有 `catch (Exception)` 那条分支压 `iconst_1`。
+
+也就是说：**在框架里，"工具失败"唯一的表达方式就是抛异常。**
+我一开始直接复用了给 Agent 用的 `ToolCallbacks.of`（它返回 `String`），
+`ToolResult.error()` 这个标志就被丢在路上了——实测结果：
+
+```
+{"result": {"content":[{"text":"【工具执行失败】..."}], "isError": false}}
+```
+
+工具明明失败了，标志却是 `false`。**这正是手写版修过的 Bug C，一模一样。**
+修法是给 MCP 单独一条 `ofForMcp`：失败就抛 `ToolFailureException`，
+框架的 catch 分支会把 `getMessage()` 原样放进 content，`isError` 也就成了 `true`——
+文案一个字没丢，标志也对了。
+
+> 同一个 `ToolResult`，两个消费方要两种翻译：
+> Agent 要的是"把失败当文本喂回模型"，MCP 要的是"把失败翻译成协议标志"。
+> **这层适配框架不会替你做**，而且删掉它不会报错，只会静默地少一个 `true`。
+
+### 11.4 没省掉：返回值原样性（框架悄悄改了数据）
+
+框架默认的 `DefaultToolCallResultConverter` 会把返回值无条件 JSON 化，**连 `String` 也加引号**：
+
+```
+工具返回  1+1 = 2
+模型收到  "1+1 = 2"     ← 外面套了一层 JSON 字符串字面量
+```
+
+同样是字节码里那个无条件的 `JsonParser.toJson(result)`。
+虽然不违反协议，但这层引号会**原样进模型上下文**，是实打实的噪音。
+换成 `(result, returnType) -> result.toString()` 就干净了。
+
+（这条不是 MCP 独有的——Agent 那条路走的是同一个 converter，一起改了。）
+
+### 11.5 框架多出来的东西：并发，以及随之而来的竞态
+
+手写版是一条线程"读一行 → 处理 → 写一行"，结构上不可能有并发问题。
+框架版把请求丢到 `boundedElastic` 线程池上并发处理，于是**连着发请求时会随机丢响应**。
+
+实测脚本 `scripts/mcp/mcp_concurrency.py`，同一批请求跑两种节奏：
+
+```
+手写版  连着发     -> 全部应答
+手写版  一问一答   -> 全部应答
+框架版  连着发     -> 丢 2 条
+框架版  一问一答   -> 全部应答
+```
+
+而且**每次丢的不是同一条**（跑两回，一回丢 2 号、一回丢 3 号）。
+stderr 里写着原因：
+
+```
+ERROR reactor.core.publisher.Operators : Operator called default onErrorDropped
+reactor.core.Exceptions$ErrorCallbackNotImplemented:
+    java.lang.RuntimeException: Failed to enqueue message
+```
+
+多个执行线程同时往同一个 sink 里写响应，输的那个错误被 `onErrorDropped`——
+**调用方永远不知道自己的请求被丢了**。
+
+边界必须说清楚，否则就成了标题党：**严格一问一答的客户端不会触发**
+（同一个脚本的 B 组实测，两条路都是 4/4，零丢包）。Claude Desktop、Inspector 都是这个节奏。
+
+> 值得记的不是"框架有 bug"，而是：**手写版的简单本身就是一种保证**。
+> 它慢、它不能并发，但它不可能丢你的请求。
+> 框架用并发换来了吞吐，代价是引入了一个手写版从结构上就不存在的故障模式。
+
+### 11.6 顺带一个"框架确实替我兜住了"的例子
+
+手写版没有状态机，所以它**宽容地接受任何时序**——我在回归脚本里连着发请求，
+手写版照单全收。框架版的状态机则会挡住不合规的客户端。
+一开始我把这个差异误读成"框架会丢请求"，后来才分清：
+**宽容不是优点，是没守住规范。**
+
+### 11.7 两条路的验证结果对照
+
+同一个回归脚本换一个 main class 就能两边跑（`mcp_regression.py`）：
+
+| 检查项 | 手写版 | 框架版 |
+|---|---|---|
+| ① 成功 -> 有 result，isError 不为 true | PASS | PASS |
+| ② 工具自身失败 -> `isError:true` | PASS | PASS（**修了 11.3 才对**） |
+| ③ 工具不存在 -> `-32602` | PASS | PASS |
+| ④ `resources/list` | `-32601`（没声明该能力） | `{"resources":[]}`（**默认声明了 4 项能力**） |
+| ⑤ 下游挂了 -> `isError:true` 且文案是人话 | PASS | PASS |
+| stdout 纯净性 | PASS | PASS（**修了 11.2 才对**） |
+| 响应文本是否被 JSON 二次编码 | 原样 | **修了 11.4 才原样** |
+| 成功时 `isError` 字段形态 | 省略 | 显式 `false`（两种都合规） |
+| 退出码 | 0 | 0 |
+| **连着发请求** | **全部应答** | **随机丢 1～2 条**（见 11.5） |
+
+④ 值得单说：**框架默认就把 `resources` / `prompts` / `completions` / `logging`
+四项能力全声明了**，哪怕我一个 resource 都没提供。客户端于是会看到一排空面板。
+这不算协议违规（空列表是合法结果），但属于"框架替你做了决定"，
+要关得自己显式关。
+
+### 11.8 一个副作用：加了依赖，Web 应用也变了
+
+`spring-ai-starter-mcp-server` 一进 classpath，**8083 那个 Web 应用也起了一套 MCP 自动配置**
+（日志里会打 `Enable completions capabilities`、多 4 行 BeanPostProcessor 的 WARN），
+即使它根本不是 MCP server。
+
+实测过边界：`/sse`、`/mcp`、`/mcp/message` **全是 404**，没有真的暴露端点，
+应用自己的接口照常。所以是"多了些闲置 bean 和噪音"，不是安全问题——
+但**依赖是全局的，加之前没想到会影响另一个入口**，这点值得记。
+
+## 十二、框架版的协议版本：stdio 被钉死在 2024-11-05
+
+框架版 initialize 的返回里 `protocolVersion` 是 **`2024-11-05`**，而客户端要的是 `2025-06-18`，
+日志里跟着一句 WARN：
+
+```
+Client requested unsupported protocol version: 2025-06-18,
+so the server will suggest the 2024-11-05 version instead
+```
+
+顺着字节码查下去，原因很直接——**`StdioServerTransportProvider.protocolVersions()`
+返回的是硬编码的 `List.of("2024-11-05")`**，不是常量引用，就一个字符串字面量：
+
+| 传输 | 声明的版本 |
+|---|---|
+| `StdioServerTransportProvider` | 只有 `2024-11-05` |
+| `HttpServletSseServerTransportProvider` | 只有 `2024-11-05` |
+| `HttpServletStreamableServerTransportProvider` | 四个全有（含 `2025-11-25`） |
+
+而 `McpSchema.LATEST_PROTOCOL_VERSION` 是 `2025-11-25`，`ProtocolVersions` 接口里四个常量也都在。
+**版本协商的机器是齐的，只是 stdio 传输没去用它。**
+
+在 0.18.3 里我没找到改的入口：`StdioServerTransportProvider` 没有 Builder，
+Spring AI 暴露的 `spring.ai.mcp.server.*` 属性里也没这一项。
+
+所以对比就很清楚了：
+
+| | 手写版 | 框架版 |
+|---|---|---|
+| 客户端要 2025-06-18 | 协商结果 2025-06-18 | **降到 2024-11-05** |
+
+**这不代表功能坏了**：§十 已经 diff 过，工具相关的报文形状在各版本间是兼容的，
+实测 5 个工具都能列、能调。但"我支持最新版"这句话，
+在手写版是成立的事实，在框架版是**不成立的**——而且默认你不会发现，
+除非去看 initialize 的返回。
+
+> 这条是"先手写再上框架"最典型的产出：如果我只写框架版，
+> 我根本不会知道自己报出去的版本号是什么。
+
+## 十三、还没验证的（别当结论讲）
 
 - **Claude Desktop 接入没试过**（配置文件已经有了，见 §九）。
-- **Spring AI MCP starter 版还没写**，"框架替我省了什么"这半段对比目前是空的。
 - **客户端报一个我不支持的版本时，客户端会不会按规范断开**——没测。
-- **并发**：没测过多个客户端同时连。
+- **多个客户端同时连**——没测（11.5 那个竞态是单个客户端的多条请求触发的）。
+- **11.5 的竞态在新版 SDK 里修没修**——没查（我只看了 0.18.3）。
 - Inspector 验不了的那几条见 §九末尾（`-32602`、`-32601`、通知）。
+- **框架版的 `resources` / `prompts` 能力没关**（见 11.7 的 ④），保持原样是为了让差异可见。
