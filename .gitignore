@@ -3,3 +3,7 @@ target/
 .idea/
 *.iml
 .vscode/
+
+# Python 探针脚本的产物（scripts/mcp/）
+__pycache__/
+*.pyc
